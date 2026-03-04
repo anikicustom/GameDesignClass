@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>遊戲設計工作坊：農場精算與指數增長</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: #8d6e63; color: #fff; text-align: center; padding: 20px; margin: 0; }
+        h1 { color: #ffeb3b; margin-bottom: 5px; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+        
+        .status-bar { background-color: #5d4037; padding: 15px; border-radius: 10px; display: flex; justify-content: space-around; font-size: 22px; font-weight: bold; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }
+        .money { color: #ffeb3b; }
+        .ap { color: #4fc3f7; }
+        .day { color: #a5d6a7; }
+
+        .farm-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; max-width: 600px; margin: 0 auto 30px auto; }
+        .plot { background-color: #795548; height: 120px; border-radius: 8px; border: 4px dashed #5d4037; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; position: relative; }
+        .plot:hover { border-color: #ffeb3b; background-color: #8ca362; }
+        .plot-emoji { font-size: 50px; line-height: 1; }
+        .plot-info { font-size: 14px; background: rgba(0,0,0,0.6); padding: 2px 8px; border-radius: 10px; position: absolute; bottom: 5px; }
+
+        .shop-container { background-color: #4e342e; padding: 20px; border-radius: 10px; max-width: 800px; margin: 0 auto; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
+        .shop-item { background-color: #3e2723; padding: 10px 15px; border-radius: 8px; border: 2px solid #795548; cursor: pointer; width: 140px; }
+        .shop-item.selected { border-color: #ffeb3b; background-color: #5d4037; transform: scale(1.05); }
+        .shop-item h3 { margin: 5px 0; font-size: 16px; color: #ffb74d; }
+        .shop-item p { margin: 0; font-size: 12px; color: #d7ccc8; }
+        
+        .tools-section { margin-top: 15px; width: 100%; border-top: 2px dashed #795548; padding-top: 15px; display: flex; justify-content: center; gap: 15px; }
+        
+        .btn-end-day { background-color: #2e7d32; color: white; border: none; padding: 15px 40px; font-size: 24px; border-radius: 8px; cursor: pointer; font-weight: bold; margin-top: 20px; box-shadow: 0 4px 0 #1b5e20; transition: 0.1s; }
+        .btn-end-day:active { transform: translateY(4px); box-shadow: none; }
+        
+        #log-msg { font-size: 18px; color: #ffeb3b; height: 24px; margin: 10px 0; font-weight: bold; }
+
+        #game-over { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 100; flex-direction: column; align-items: center; justify-content: center; }
+        #game-over h2 { font-size: 48px; color: #ffeb3b; margin: 0; }
+        #game-over p { font-size: 24px; }
+        .btn-restart { background-color: #e67e22; color: white; border: none; padding: 12px 24px; font-size: 20px; border-radius: 8px; cursor: pointer; margin: 10px; transition: 0.2s; }
+        .btn-restart:hover { transform: scale(1.05); }
+        .btn-retry-farm { background-color: #27ae60; } /* 農場專屬綠色按鈕 */
+    </style>
+</head>
+<body>
+
+    <h1>第二關：農場資本家 (指數增長模擬)</h1>
+    
+    <div class="status-bar">
+        <div class="day">📅 第 <span id="ui-day">1</span> / 10 天</div>
+        <div class="ap">⚡ 行動力 (AP): <span id="ui-ap">3</span> / <span id="ui-max-ap">3</span></div>
+        <div class="money">💰 資金: $<span id="ui-money">50</span></div>
+    </div>
+
+    <div id="log-msg">提示：先在下方選擇種子，然後點擊農田種植 (消耗 1 AP)</div>
+
+    <div class="farm-grid" id="farm"></div>
+
+    <div class="shop-container">
+        <div class="shop-item selected" id="seed-radish" onclick="selectTool('radish')">
+            <h3>🥕 蘿蔔種子</h3>
+            <p>成本: $1<br>生長: 2天<br>售價: $3</p>
+        </div>
+        <div class="shop-item" id="seed-potato" onclick="selectTool('potato')">
+            <h3>🥔 馬鈴薯種子</h3>
+            <p>成本: $3<br>生長: 4天<br>售價: $10</p>
+        </div>
+        <div class="shop-item" id="seed-pumpkin" onclick="selectTool('pumpkin')">
+            <h3>🎃 南瓜種子</h3>
+            <p>成本: $10<br>生長: 7天<br>售價: $35</p>
+        </div>
+        
+        <div class="tools-section">
+            <div class="shop-item" id="tool-fertilizer" style="border-color: #9c27b0;" onclick="selectTool('fertilizer')">
+                <h3 style="color:#ce93d8;">✨ 超級肥料</h3>
+                <p>售價: $10<br>消耗 1 AP<br>效果: 瞬間成熟</p>
+            </div>
+            <div class="shop-item" id="tool-elf" style="border-color: #2196f3; width: 180px;" onclick="buyElf()">
+                <h3 style="color:#64b5f6;">🧚 僱傭農場精靈</h3>
+                <p>售價: $30 (永久)<br>效果: 每天 AP 變 6 點</p>
+            </div>
+        </div>
+    </div>
+
+    <button class="btn-end-day" onclick="endDay()">💤 結束這回合 (下一天)</button>
+
+    <div id="game-over">
+        <h2>結算報告</h2>
+        <p>10 天期限已到！</p>
+        <p>你的最終農場總資產為：<span id="final-money" style="font-size: 60px; color: #2ecc71; font-weight: bold;">$0</span></p>
+        <p style="color: #bdc3c7; max-width: 600px; line-height: 1.5; margin-bottom: 30px;">
+            【企劃挑戰】<br>你發現了「只種南瓜」的無敵套路嗎？<br>如果不改數值，你能想到什麼設計來逼玩家種蘿蔔嗎？
+        </p>
+        
+        <div>
+            <button class="btn-restart btn-retry-farm" onclick="restartFarm()">🔄 再玩一次農場 (保留初始資金)</button>
+            <button class="btn-restart" onclick="window.location.href='Game.html'">⚔️ 回第一關設計子彈</button>
+        </div>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        let initialMoney = parseInt(urlParams.get('money')) || 50; // 記憶初始資金！
+        let money = initialMoney;
+        
+        let day = 1;
+        const maxDays = 10;
+        let maxAp = 3;
+        let ap = maxAp;
+        let currentTool = 'radish';
+        let hasElf = false;
+
+        const cropData = {
+            'radish': { name: '蘿蔔', icon: '🥕', cost: 1, growTime: 2, sell: 3, seedIcon: '🌱' },
+            'potato': { name: '馬鈴薯', icon: '🥔', cost: 3, growTime: 4, sell: 10, seedIcon: '🌱' },
+            'pumpkin': { name: '南瓜', icon: '🎃', cost: 10, growTime: 7, sell: 35, seedIcon: '🌱' }
+        };
+
+        let plots = Array(8).fill(null).map(() => ({ type: null, daysGrown: 0, state: 'empty' }));
+        const logMsg = document.getElementById('log-msg');
+
+        function updateUI() {
+            document.getElementById('ui-money').innerText = money;
+            document.getElementById('ui-ap').innerText = ap;
+            document.getElementById('ui-max-ap').innerText = maxAp;
+            document.getElementById('ui-day').innerText = day;
+            renderFarm();
+        }
+
+        function renderFarm() {
+            const farmDiv = document.getElementById('farm');
+            farmDiv.innerHTML = '';
+            
+            plots.forEach((plot, index) => {
+                const div = document.createElement('div');
+                div.className = 'plot';
+                div.onclick = () => interactPlot(index);
+                
+                if (plot.state === 'empty') {
+                    div.innerHTML = `<div class="plot-info">空地</div>`;
+                } else if (plot.state === 'growing') {
+                    let crop = cropData[plot.type];
+                    let remain = crop.growTime - plot.daysGrown;
+                    div.innerHTML = `
+                        <div class="plot-emoji">${crop.seedIcon}</div>
+                        <div class="plot-info">剩 ${remain} 天</div>
+                    `;
+                    div.style.backgroundColor = '#6d4c41';
+                } else if (plot.state === 'ready') {
+                    let crop = cropData[plot.type];
+                    div.innerHTML = `
+                        <div class="plot-emoji" style="filter: drop-shadow(0 0 10px #ffeb3b);">${crop.icon}</div>
+                        <div class="plot-info" style="background:#2ecc71;">可收成!</div>
+                    `;
+                    div.style.borderColor = '#2ecc71';
+                    div.style.animation = "bounce 1s infinite alternate"; 
+                }
+                farmDiv.appendChild(div);
+            });
+        }
+
+        function selectTool(tool) {
+            currentTool = tool;
+            document.querySelectorAll('.shop-item').forEach(el => el.classList.remove('selected'));
+            document.getElementById(`seed-${tool}`)?.classList.add('selected');
+            document.getElementById(`tool-${tool}`)?.classList.add('selected');
+            
+            if(tool === 'fertilizer') logMsg.innerText = "已裝備【超級肥料】：點擊生長中的作物瞬間催熟！";
+            else logMsg.innerText = `已裝備【${cropData[tool].name}種子】：點擊空地種植。`;
+        }
+
+        function buyElf() {
+            if (hasElf) { logMsg.innerText = "你已經僱傭精靈了！"; return; }
+            if (money >= 30) {
+                money -= 30;
+                hasElf = true;
+                maxAp = 6;
+                ap += 3;
+                document.getElementById('tool-elf').style.opacity = '0.5';
+                document.getElementById('tool-elf').innerHTML += '<br><b style="color:#2ecc71">已解鎖</b>';
+                logMsg.innerText = "✨ 購買成功！每天行動力上限提升至 6 點！";
+                updateUI();
+            } else {
+                logMsg.innerText = "❌ 資金不足，無法僱傭精靈。";
+            }
+        }
+
+        function interactPlot(index) {
+            let plot = plots[index];
+
+            if (plot.state === 'ready') {
+                if (ap >= 1) {
+                    ap -= 1;
+                    let crop = cropData[plot.type];
+                    money += crop.sell;
+                    logMsg.innerText = `✅ 收成 ${crop.name}！賺得 $${crop.sell}。`;
+                    plot.state = 'empty'; plot.type = null; plot.daysGrown = 0;
+                    updateUI();
+                } else { logMsg.innerText = "❌ 行動力 (AP) 不足，無法收成！"; }
+                return;
+            }
+
+            if (plot.state === 'empty' && ['radish', 'potato', 'pumpkin'].includes(currentTool)) {
+                let crop = cropData[currentTool];
+                if (ap < 1) { logMsg.innerText = "❌ 行動力 (AP) 不足，無法播種！"; return; }
+                if (money < crop.cost) { logMsg.innerText = `❌ 資金不足！需要 $${crop.cost}。`; return; }
+                
+                money -= crop.cost; ap -= 1;
+                plot.state = 'growing'; plot.type = currentTool; plot.daysGrown = 0;
+                logMsg.innerText = `🌱 種下了 ${crop.name}。`;
+                updateUI();
+                return;
+            }
+
+            if (plot.state === 'growing' && currentTool === 'fertilizer') {
+                if (ap < 1) { logMsg.innerText = "❌ 行動力 (AP) 不足，無法施肥！"; return; }
+                if (money < 10) { logMsg.innerText = "❌ 資金不足！超級肥料需要 $10。"; return; }
+                
+                money -= 10; ap -= 1; plot.state = 'ready'; 
+                logMsg.innerText = "✨ 使用超級肥料！作物瞬間成熟了！";
+                updateUI();
+                return;
+            }
+
+            if (plot.state === 'growing') logMsg.innerText = "作物還在生長中... 請耐心等待或使用肥料。";
+        }
+
+        function endDay() {
+            day += 1;
+            
+            if (day > maxDays) {
+                plots.forEach(plot => { if(plot.state === 'ready') money += cropData[plot.type].sell; });
+                document.getElementById('final-money').innerText = "$" + money;
+                document.getElementById('game-over').style.display = 'flex';
+                return;
+            }
+
+            ap = maxAp;
+            plots.forEach(plot => {
+                if (plot.state === 'growing') {
+                    plot.daysGrown += 1;
+                    if (plot.daysGrown >= cropData[plot.type].growTime) plot.state = 'ready';
+                }
+            });
+
+            logMsg.innerText = `🌅 新的一天開始了！AP 已恢復。`;
+            updateUI();
+        }
+
+        // 🌟 新增：重新開始農場遊戲的邏輯 🌟
+        function restartFarm() {
+            money = initialMoney; // 恢復成從第一關帶過來的錢
+            day = 1;
+            hasElf = false;
+            maxAp = 3;
+            ap = maxAp;
+            currentTool = 'radish';
+            
+            // 清空所有農田
+            plots = Array(8).fill(null).map(() => ({ type: null, daysGrown: 0, state: 'empty' }));
+            
+            // 重置商店精靈的 UI
+            document.getElementById('tool-elf').style.opacity = '1';
+            document.getElementById('tool-elf').innerHTML = '<h3 style="color:#64b5f6;">🧚 僱傭農場精靈</h3><p>售價: $30 (永久)<br>效果: 每天 AP 變 6 點</p>';
+            
+            document.getElementById('game-over').style.display = 'none'; // 隱藏結算畫面
+            
+            selectTool('radish');
+            logMsg.innerText = `🔄 農場已重置！你帶著初始的 $${initialMoney} 重新挑戰！`;
+            updateUI();
+        }
+
+        const style = document.createElement('style');
+        style.innerHTML = `@keyframes bounce { 0% { transform: translateY(0); } 100% { transform: translateY(-10px); } }`;
+        document.head.appendChild(style);
+
+        if(money > 50) logMsg.innerText = `🎉 讀取到通關獎勵！你帶著 $${money} 鉅款強勢開局！`;
+        updateUI();
+
+    </script>
+</body>
+</html>
